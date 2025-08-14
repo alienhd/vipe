@@ -41,6 +41,9 @@ class FrameAttribute(Enum):
     INSTANCE = "instance"
     MASK = "mask"
     METRIC_DEPTH = "metric_depth"
+    SEMANTIC_MASK = "semantic_mask"
+    POINT_CLOUD = "point_cloud"
+    COLORIZED_RGB = "colorized_rgb"
 
 
 @dataclass(kw_only=True, slots=True)
@@ -72,6 +75,10 @@ class VideoFrame:
     instance_phrases: dict[int, str] | None = None
     mask: torch.Tensor | None = None
     metric_depth: torch.Tensor | None = None
+    semantic_mask: torch.Tensor | None = None
+    semantic_segments: list | None = None
+    point_cloud: dict | None = None
+    colorized_rgb: torch.Tensor | None = None
     information: str = ""
 
     def size(self) -> tuple[int, int]:
@@ -95,6 +102,12 @@ class VideoFrame:
             attributes.add(FrameAttribute.MASK)
         if self.metric_depth is not None:
             attributes.add(FrameAttribute.METRIC_DEPTH)
+        if self.semantic_mask is not None:
+            attributes.add(FrameAttribute.SEMANTIC_MASK)
+        if self.point_cloud is not None:
+            attributes.add(FrameAttribute.POINT_CLOUD)
+        if self.colorized_rgb is not None:
+            attributes.add(FrameAttribute.COLORIZED_RGB)
 
         return attributes
 
@@ -111,6 +124,12 @@ class VideoFrame:
             return self.mask
         if attribute == FrameAttribute.METRIC_DEPTH:
             return self.metric_depth
+        if attribute == FrameAttribute.SEMANTIC_MASK:
+            return self.semantic_mask
+        if attribute == FrameAttribute.POINT_CLOUD:
+            return self.point_cloud
+        if attribute == FrameAttribute.COLORIZED_RGB:
+            return self.colorized_rgb
         raise ValueError(f"Attribute {attribute} is not available in the frame.")
 
     def set_attribute(self, attribute: FrameAttribute, value: Any) -> None:
@@ -126,6 +145,12 @@ class VideoFrame:
             self.mask = value
         elif attribute == FrameAttribute.METRIC_DEPTH:
             self.metric_depth = value
+        elif attribute == FrameAttribute.SEMANTIC_MASK:
+            self.semantic_mask = value
+        elif attribute == FrameAttribute.POINT_CLOUD:
+            self.point_cloud = value
+        elif attribute == FrameAttribute.COLORIZED_RGB:
+            self.colorized_rgb = value
         else:
             raise ValueError(f"Attribute {attribute} is not available in the frame.")
 
@@ -139,6 +164,10 @@ class VideoFrame:
             instance=map_cpu(self.instance),
             instance_phrases=self.instance_phrases,
             metric_depth=map_cpu(self.metric_depth),
+            semantic_mask=map_cpu(self.semantic_mask),
+            semantic_segments=self.semantic_segments,
+            point_cloud=self.point_cloud,
+            colorized_rgb=map_cpu(self.colorized_rgb),
             pose=map_cpu(self.pose),
             intrinsics=map_cpu(self.intrinsics),
             camera_type=self.camera_type,
@@ -155,6 +184,10 @@ class VideoFrame:
             instance=map_cuda(self.instance),
             instance_phrases=self.instance_phrases,
             metric_depth=map_cuda(self.metric_depth),
+            semantic_mask=map_cuda(self.semantic_mask),
+            semantic_segments=self.semantic_segments,
+            point_cloud=self.point_cloud,
+            colorized_rgb=map_cuda(self.colorized_rgb),
             pose=map_cuda(self.pose),
             intrinsics=map_cuda(self.intrinsics),
             camera_type=self.camera_type,
@@ -190,6 +223,20 @@ class VideoFrame:
                 0, 0
             ]
 
+        new_semantic_mask = None
+        if self.semantic_mask is not None:
+            new_semantic_mask = torch.nn.functional.interpolate(self.semantic_mask[None, None].float(), size, mode="nearest")[
+                0, 0
+            ].byte()
+
+        new_colorized_rgb = None
+        if self.colorized_rgb is not None:
+            new_colorized_rgb = (
+                torch.nn.functional.interpolate(self.colorized_rgb.permute(2, 0, 1)[None], size, mode="bilinear")
+                .squeeze(0)
+                .permute(1, 2, 0)
+            )
+
         new_intrinsics = None
         if self.intrinsics is not None:
             new_intrinsics = self.intrinsics.clone()
@@ -205,6 +252,10 @@ class VideoFrame:
             instance=new_instance,
             instance_phrases=self.instance_phrases,
             metric_depth=new_metric_depth,
+            semantic_mask=new_semantic_mask,
+            semantic_segments=self.semantic_segments,
+            point_cloud=self.point_cloud,  # Point cloud doesn't need resizing
+            colorized_rgb=new_colorized_rgb,
             pose=self.pose,
             intrinsics=new_intrinsics,
             camera_type=new_camera_type,
@@ -232,6 +283,14 @@ class VideoFrame:
         if self.metric_depth is not None:
             new_metric_depth = self.metric_depth[top:bottom, left:right]
 
+        new_semantic_mask = None
+        if self.semantic_mask is not None:
+            new_semantic_mask = self.semantic_mask[top:bottom, left:right]
+
+        new_colorized_rgb = None
+        if self.colorized_rgb is not None:
+            new_colorized_rgb = self.colorized_rgb[top:bottom, left:right]
+
         new_intrinsics = None
         if self.intrinsics is not None:
             new_intrinsics = self.intrinsics.clone()
@@ -247,6 +306,10 @@ class VideoFrame:
             instance=new_instance,
             instance_phrases=self.instance_phrases,
             metric_depth=new_metric_depth,
+            semantic_mask=new_semantic_mask,
+            semantic_segments=self.semantic_segments,
+            point_cloud=self.point_cloud,  # Point cloud doesn't need cropping
+            colorized_rgb=new_colorized_rgb,
             pose=self.pose,
             intrinsics=new_intrinsics,
             camera_type=new_camera_type,
