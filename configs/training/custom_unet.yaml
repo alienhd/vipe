@@ -1,0 +1,86 @@
+# Custom U-Net Training Configuration
+# For training a custom U-Net architecture from scratch
+
+# Data configuration
+data_dir: "./data/colorization_dataset"
+output_dir: "./training_outputs/custom_unet"
+
+# Model configuration
+model:
+  type: "custom_unet"
+  name: "custom_colorization_unet"
+  params:
+    # U-Net architecture parameters
+    input_channels: 3  # Grayscale + depth + semantic
+    output_channels: 3  # RGB
+    base_channels: 64
+    depth_levels: 4
+    attention_levels: [2, 3]  # Which levels to add attention
+    use_depth_conditioning: true
+    use_semantic_conditioning: true
+    temporal_layers: true
+    dropout: 0.1
+    
+# Training configuration
+training:
+  batch_size: 8
+  epochs: 100
+  num_workers: 8
+  save_freq: 10
+  
+  # Training from scratch requires more aggressive settings
+  mixed_precision: true
+  gradient_accumulation_steps: 2
+  gradient_clipping: 1.0
+  
+  # Data augmentation
+  augmentation:
+    horizontal_flip: 0.5
+    vertical_flip: 0.2
+    rotation: 10
+    color_jitter: 0.3
+    gaussian_blur: 0.2
+    random_crop: 0.9
+
+# Optimizer configuration
+optimizer:
+  type: "adam"
+  lr: 1e-4  # Higher learning rate for training from scratch
+  weight_decay: 1e-5
+  beta1: 0.9
+  beta2: 0.999
+
+# Learning rate scheduler
+scheduler:
+  type: "step"
+  step_size: 30
+  gamma: 0.1
+  warmup_epochs: 10
+  
+# Loss function configuration
+loss:
+  perceptual_weight: 2.0  # Emphasize perceptual quality
+  temporal_weight: 1.0
+  semantic_weight: 0.5
+  l1_weight: 1.0
+  adversarial_weight: 0.1  # Optional GAN loss
+  
+# Evaluation configuration
+evaluation:
+  eval_freq: 5
+  save_samples: true
+  metrics:
+    - ssim
+    - psnr
+    - lpips
+    - fid
+    
+# Additional features
+use_depth: true
+use_semantic: true
+temporal_consistency: true
+
+# Distributed training
+distributed:
+  enabled: true
+  backend: "nccl"

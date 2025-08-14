@@ -1,0 +1,116 @@
+# High-Quality Video Colorization Configuration
+# Optimized for maximum quality, research-grade results
+
+# Data configuration
+data_dir: "./data/high_quality_dataset"
+output_dir: "./training_outputs/high_quality_model"
+
+# Model configuration - Maximum quality architecture
+model:
+  type: "advanced_transformer"
+  name: "high_quality_colorization_transformer"
+  params:
+    input_channels: 7  # Grayscale + depth + semantic + temporal
+    output_channels: 3
+    base_channels: 128
+    depth_levels: 5
+    attention_levels: [1, 2, 3, 4]
+    num_heads: 8
+    transformer_layers: 6
+    use_depth_conditioning: true
+    use_semantic_conditioning: true
+    temporal_layers: true
+    temporal_window: 5  # 5-frame temporal window
+    dropout: 0.2
+    layer_norm: true
+    residual_connections: true
+    
+# Training configuration - Quality-focused
+training:
+  batch_size: 2  # Small batch for memory
+  epochs: 200    # Extended training
+  num_workers: 8
+  save_freq: 10
+  
+  mixed_precision: true
+  gradient_accumulation_steps: 8  # Effective batch size of 16
+  gradient_clipping: 1.0
+  
+  # Comprehensive augmentation
+  augmentation:
+    horizontal_flip: 0.5
+    vertical_flip: 0.2
+    rotation: 15
+    color_jitter: 0.3
+    gaussian_blur: 0.2
+    random_crop: 0.8
+    noise_injection: 0.1
+    temporal_shift: 2
+
+# Optimizer configuration
+optimizer:
+  type: "adamw"
+  lr: 5e-5  # Conservative learning rate
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1e-8
+
+# Learning rate scheduler - Sophisticated scheduling
+scheduler:
+  type: "cosine_restarts"
+  warmup_epochs: 20
+  restart_period: 50
+  restart_mult: 2
+  min_lr: 1e-7
+  
+# Loss function - Comprehensive quality metrics
+loss:
+  perceptual_weight: 2.0     # Strong perceptual emphasis
+  temporal_weight: 1.5       # Strong temporal consistency
+  semantic_weight: 1.0       # Semantic awareness
+  l1_weight: 1.0
+  l2_weight: 0.5
+  adversarial_weight: 0.2    # GAN loss for realism
+  feature_matching_weight: 0.5
+  style_weight: 0.3          # Style consistency
+  
+# Advanced loss components
+advanced_loss:
+  vgg_layers: [2, 7, 12, 21, 30]  # Multi-layer perceptual loss
+  lpips_weight: 0.5               # Learned perceptual loss
+  contextual_weight: 0.3          # Contextual loss
+  
+# Evaluation configuration
+evaluation:
+  eval_freq: 5
+  save_samples: true
+  sample_count: 20
+  metrics:
+    - ssim
+    - psnr
+    - lpips
+    - fid
+    - contextual_distance
+    - temporal_consistency
+    
+# Quality features - All enabled
+use_depth: true
+use_semantic: true
+temporal_consistency: true
+style_transfer: true
+attention_mechanisms: true
+
+# Quality optimization
+quality_optimization:
+  multi_scale_training: true
+  progressive_growing: true
+  self_attention: true
+  cross_attention: true
+  feature_pyramid: true
+  
+# Distributed training
+distributed:
+  enabled: true
+  backend: "nccl"
+  find_unused_parameters: true
