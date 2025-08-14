@@ -46,7 +46,13 @@ from vipe.utils.cameras import CameraType
 from vipe.utils.visualization import save_projection_video
 
 # Import the colorization processors
-from .processors import ColorizationProcessor, SemanticSegmentationProcessor, PointCloudProcessor
+try:
+    from .processors import ColorizationProcessor, SemanticSegmentationProcessor, PointCloudProcessor
+except ImportError:
+    # Fallback imports in case of missing dependencies
+    ColorizationProcessor = None
+    SemanticSegmentationProcessor = None
+    PointCloudProcessor = None
 
 
 logger = logging.getLogger(__name__)
@@ -128,16 +134,20 @@ class VideoColorizationPipeline(Pipeline):
         """Add colorization-specific processors."""
         colorization_processors: list[StreamProcessor] = []
         
-        # Add semantic segmentation processor
-        colorization_processors.append(
-            SemanticSegmentationProcessor(
-                model_name=self.colorization_cfg.semantic_model,
-                device=self.colorization_cfg.device
+        # Check if colorization processors are available
+        if SemanticSegmentationProcessor is None:
+            logger.warning("Semantic segmentation processor not available. Skipping semantic processing.")
+        else:
+            # Add semantic segmentation processor
+            colorization_processors.append(
+                SemanticSegmentationProcessor(
+                    model_name=self.colorization_cfg.semantic_model,
+                    device=self.colorization_cfg.device
+                )
             )
-        )
         
         # Add point cloud generation processor
-        if self.colorization_cfg.get("save_point_clouds", True):
+        if PointCloudProcessor is not None and self.colorization_cfg.get("save_point_clouds", True):
             colorization_processors.append(
                 PointCloudProcessor(
                     intrinsics=slam_output.intrinsics[view_idx],
@@ -146,17 +156,20 @@ class VideoColorizationPipeline(Pipeline):
             )
         
         # Add main colorization processor
-        colorization_processors.append(
-            ColorizationProcessor(
-                model_name=self.colorization_cfg.colorization_model,
-                device=self.colorization_cfg.device,
-                inference_steps=self.colorization_cfg.get("inference_steps", 20),
-                guidance_scale=self.colorization_cfg.get("guidance_scale", 7.5),
-                temporal_weight=self.colorization_cfg.get("temporal_weight", 0.3),
-                use_depth_conditioning=self.colorization_cfg.get("depth_conditioning", True),
-                use_semantic_conditioning=self.colorization_cfg.get("semantic_consistency", True)
+        if ColorizationProcessor is None:
+            logger.warning("Colorization processor not available. Skipping colorization processing.")
+        else:
+            colorization_processors.append(
+                ColorizationProcessor(
+                    model_name=self.colorization_cfg.colorization_model,
+                    device=self.colorization_cfg.device,
+                    inference_steps=self.colorization_cfg.get("inference_steps", 20),
+                    guidance_scale=self.colorization_cfg.get("guidance_scale", 7.5),
+                    temporal_weight=self.colorization_cfg.get("temporal_weight", 0.3),
+                    use_depth_conditioning=self.colorization_cfg.get("depth_conditioning", True),
+                    use_semantic_conditioning=self.colorization_cfg.get("semantic_consistency", True)
+                )
             )
-        )
         
         return ProcessedVideoStream(video_stream, colorization_processors)
 
