@@ -299,3 +299,276 @@ class AdaptiveDepthProcessor(StreamProcessor):
                 frame.metric_depth = prompt_result
 
             yield frame
+
+
+# ============================================================================
+# Colorization Processors
+# ============================================================================
+
+class SemanticSegmentationProcessor(StreamProcessor):
+    """
+    Processor for performing semantic segmentation on video frames.
+    Provides object-level understanding for colorization.
+    """
+    
+    def __init__(self, model_name: str = "openmmlab/upernet-convnext-small", device: str = "cuda"):
+        super().__init__()
+        self.model_name = model_name
+        self.device = device
+        self.model = None
+        
+    def _initialize_model(self):
+        """Lazy initialization of the segmentation model."""
+        if self.model is None:
+            try:
+                from transformers import pipeline
+                self.model = pipeline(
+                    "image-segmentation",
+                    model=self.model_name,
+                    device=0 if self.device == "cuda" and torch.cuda.is_available() else -1
+                )
+                logger.info(f"Initialized semantic segmentation model: {self.model_name}")
+            except Exception as e:
+                logger.error(f"Failed to initialize segmentation model: {e}")
+                raise
+    
+    def update_attributes(self, previous_attributes: set[FrameAttribute]) -> set[FrameAttribute]:
+        return previous_attributes | {FrameAttribute.SEMANTIC_MASK}
+    
+    def __call__(self, frame_idx: int, frame: VideoFrame) -> VideoFrame:
+        if self.model is None:
+            self._initialize_model()
+        
+        try:
+            # Convert frame to RGB if needed
+            if len(frame.rgb.shape) == 2:  # Grayscale
+                frame_rgb = torch.stack([frame.rgb, frame.rgb, frame.rgb], dim=-1)
+            else:
+                frame_rgb = frame.rgb
+            
+            # Convert to numpy for the model
+            frame_np = frame_rgb.cpu().numpy().astype(np.uint8)
+            
+            # Perform segmentation
+            segments = self.model(frame_np)
+            
+            # Create semantic mask
+            semantic_mask = torch.zeros(frame.rgb.shape[:2], dtype=torch.uint8, device=frame.rgb.device)
+            
+            for i, segment in enumerate(segments):
+                mask = torch.from_numpy(np.array(segment["mask"])).to(frame.rgb.device)
+                semantic_mask[mask] = i + 1  # Assign class ID
+            
+            # Store semantic information
+            frame.semantic_mask = semantic_mask
+            frame.semantic_segments = segments
+            
+        except Exception as e:
+            logger.warning(f"Semantic segmentation failed for frame {frame_idx}: {e}")
+            # Create empty semantic mask as fallback
+            frame.semantic_mask = torch.zeros(frame.rgb.shape[:2], dtype=torch.uint8, device=frame.rgb.device)
+            frame.semantic_segments = []
+        
+        return frame
+
+
+class PointCloudProcessor(StreamProcessor):
+    """
+    Processor for generating semantic point clouds from depth and semantic information.
+    """
+    
+    def __init__(self, intrinsics: torch.Tensor, density: int = 1000):
+        super().__init__()
+        self.intrinsics = intrinsics
+        self.density = density
+        
+    def update_attributes(self, previous_attributes: set[FrameAttribute]) -> set[FrameAttribute]:
+        return previous_attributes | {FrameAttribute.POINT_CLOUD}
+    
+    def __call__(self, frame_idx: int, frame: VideoFrame) -> VideoFrame:
+        try:
+            if not hasattr(frame, 'metric_depth') or not hasattr(frame, 'semantic_mask'):
+                logger.warning(f"Missing depth or semantic data for frame {frame_idx}")
+                return frame
+            
+            # Get camera intrinsics
+            fx, fy, cx, cy = self.intrinsics[:4]
+            
+            # Get depth and semantic data
+            depth_map = frame.metric_depth.cpu().numpy()
+            semantic_mask = frame.semantic_mask.cpu().numpy()
+            
+            h, w = depth_map.shape
+            
+            # Sample points based on density parameter
+            total_pixels = h * w
+            step = max(1, int(np.sqrt(total_pixels / self.density)))
+            
+            points_3d = []
+            semantics = []
+            colors = []
+            
+            for v in range(0, h, step):
+                for u in range(0, w, step):
+                    z = depth_map[v, u]
+                    if z > 0:  # Valid depth
+                        # Unproject to 3D
+                        x = (u - cx) * z / fx
+                        y = (v - cy) * z / fy
+                        
+                        points_3d.append([x, y, z])
+                        semantics.append(semantic_mask[v, u])
+                        
+                        # Get color from frame (grayscale to RGB)
+                        if len(frame.rgb.shape) == 2:
+                            gray_val = frame.rgb[v, u].item()
+                            colors.append([gray_val, gray_val, gray_val])
+                        else:
+                            colors.append(frame.rgb[v, u].cpu().numpy())
+            
+            if points_3d:
+                frame.point_cloud = {
+                    'points': np.array(points_3d),
+                    'semantics': np.array(semantics),
+                    'colors': np.array(colors)
+                }
+            else:
+                frame.point_cloud = None
+                
+        except Exception as e:
+            logger.warning(f"Point cloud generation failed for frame {frame_idx}: {e}")
+            frame.point_cloud = None
+        
+        return frame
+
+
+class ColorizationProcessor(StreamProcessor):
+    """
+    Main colorization processor that uses depth and semantic information
+    to generate temporally consistent and semantically plausible colors.
+    """
+    
+    def __init__(
+        self, 
+        model_name: str = "runwayml/stable-diffusion-inpainting",
+        device: str = "cuda",
+        inference_steps: int = 20,
+        guidance_scale: float = 7.5,
+        temporal_weight: float = 0.3,
+        use_depth_conditioning: bool = True,
+        use_semantic_conditioning: bool = True
+    ):
+        super().__init__()
+        self.model_name = model_name
+        self.device = device
+        self.inference_steps = inference_steps
+        self.guidance_scale = guidance_scale
+        self.temporal_weight = temporal_weight
+        self.use_depth_conditioning = use_depth_conditioning
+        self.use_semantic_conditioning = use_semantic_conditioning
+        
+        self.model = None
+        self.previous_colorized = None
+        
+    def _initialize_model(self):
+        """Lazy initialization of the colorization model."""
+        if self.model is None:
+            try:
+                from diffusers import StableDiffusionInpaintPipeline
+                self.model = StableDiffusionInpaintPipeline.from_pretrained(
+                    self.model_name,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                    device_map="auto" if self.device == "cuda" else None
+                )
+                logger.info(f"Initialized colorization model: {self.model_name}")
+            except Exception as e:
+                logger.error(f"Failed to initialize colorization model: {e}")
+                raise
+    
+    def update_attributes(self, previous_attributes: set[FrameAttribute]) -> set[FrameAttribute]:
+        return previous_attributes | {FrameAttribute.COLORIZED_RGB}
+    
+    def _create_conditioning_prompt(self, frame: VideoFrame) -> str:
+        """Create a conditioning prompt based on semantic and depth information."""
+        base_prompt = "a realistic colorized photograph"
+        
+        if self.use_semantic_conditioning and hasattr(frame, 'semantic_segments'):
+            # Extract dominant objects from semantic segmentation
+            objects = []
+            for segment in frame.semantic_segments[:3]:  # Top 3 segments
+                if 'label' in segment:
+                    objects.append(segment['label'])
+            
+            if objects:
+                objects_str = ", ".join(objects)
+                base_prompt = f"a realistic colorized photograph with {objects_str}"
+        
+        return base_prompt
+    
+    def _apply_temporal_consistency(self, current_frame: torch.Tensor, 
+                                  previous_frame: torch.Tensor) -> torch.Tensor:
+        """Apply temporal consistency between consecutive frames."""
+        if self.previous_colorized is None:
+            return current_frame
+        
+        # Simple temporal smoothing
+        alpha = self.temporal_weight
+        return alpha * previous_frame + (1 - alpha) * current_frame
+    
+    def __call__(self, frame_idx: int, frame: VideoFrame) -> VideoFrame:
+        if self.model is None:
+            self._initialize_model()
+        
+        try:
+            # Convert grayscale to RGB if needed
+            if len(frame.rgb.shape) == 2:
+                gray_rgb = torch.stack([frame.rgb, frame.rgb, frame.rgb], dim=-1)
+            else:
+                gray_rgb = frame.rgb
+            
+            # Convert to PIL Image for diffusion model
+            from PIL import Image
+            gray_np = gray_rgb.cpu().numpy().astype(np.uint8)
+            gray_pil = Image.fromarray(gray_np)
+            
+            # Create mask for full image colorization
+            mask = np.ones(gray_rgb.shape[:2], dtype=np.uint8) * 255
+            mask_pil = Image.fromarray(mask)
+            
+            # Create conditioning prompt
+            prompt = self._create_conditioning_prompt(frame)
+            
+            # Generate colorized image
+            colorized = self.model(
+                prompt=prompt,
+                image=gray_pil,
+                mask_image=mask_pil,
+                height=gray_rgb.shape[0],
+                width=gray_rgb.shape[1],
+                num_inference_steps=self.inference_steps,
+                guidance_scale=self.guidance_scale
+            ).images[0]
+            
+            # Convert back to tensor
+            colorized_np = np.array(colorized)
+            colorized_tensor = torch.from_numpy(colorized_np).to(frame.rgb.device)
+            
+            # Apply temporal consistency if we have a previous frame
+            if self.previous_colorized is not None:
+                colorized_tensor = self._apply_temporal_consistency(
+                    colorized_tensor, self.previous_colorized
+                )
+            
+            # Store colorized result
+            frame.colorized_rgb = colorized_tensor
+            self.previous_colorized = colorized_tensor.clone()
+            
+        except Exception as e:
+            logger.warning(f"Colorization failed for frame {frame_idx}: {e}")
+            # Fallback: convert grayscale to RGB
+            if len(frame.rgb.shape) == 2:
+                frame.colorized_rgb = torch.stack([frame.rgb, frame.rgb, frame.rgb], dim=-1)
+            else:
+                frame.colorized_rgb = frame.rgb.clone()
+        
+        return frame
