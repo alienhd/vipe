@@ -4,11 +4,14 @@
   <img src="assets/teaser.gif" alt="teaser"/>
 </p>
 
-**TL;DR: ViPE is a useful open-source spatial AI tool for annotating camera poses and dense depth maps from raw videos!**
+**TL;DR: ViPE is a useful open-source spatial AI tool for annotating camera poses and dense depth maps from raw videos! Now featuring AI-powered video colorization with temporal consistency and semantic understanding.**
 
 **Contributors**: NVIDIA (Spatial Intelligence Lab, Dynamic Vision Lab, NVIDIA Issac, NVIDIA Research).
 
 **Full Abstract**: Accurate 3D geometric perception is an important prerequisite for a wide range of spatial AI systems. While state-of-the-art methods depend on large-scale training data, acquiring consistent and precise 3D annotations from in-the-wild videos remains a key challenge. In this work, we introduce ViPE, a handy and versatile video processing engine designed to bridge this gap. ViPE efficiently estimates camera intrinsics, camera motion, and dense, near-metric depth maps from unconstrained raw videos. It is robust to diverse scenarios, including dynamic selfie videos, cinematic shots, or dashcams, and supports various camera models such as pinhole, wide-angle, and 360° panoramas. 
+
+**NEW: Video Colorization Integration**: ViPE now includes comprehensive AI-based video colorization capabilities that leverage the robust 3D geometric perception to achieve temporally consistent and semantically plausible colorization of black and white videos. The colorization pipeline integrates semantic segmentation, depth-guided processing, and advanced deep learning models for realistic color generation.
+
 We use ViPE to annotate a large-scale collection of videos. This collection includes around 100K real-world internet videos, 1M high-quality AI-generated videos, and 2K panoramic videos, totaling approximately 96M frames -- all annotated with accurate camera poses and dense depth maps. We open source ViPE and the annotated dataset with the hope to accelerate the development of spatial AI systems.
 
 **[Technical Whitepaper](https://research.nvidia.com/labs/toronto-ai/vipe/assets/paper.pdf), [Project Page](https://research.nvidia.com/labs/toronto-ai/vipe), [Dataset](https://huggingface.co/) (Coming Soon)**
@@ -23,6 +26,9 @@ conda env create -f envs/base.yml
 conda activate vipe
 pip install -r envs/requirements.txt
 
+# For video colorization functionality, install additional dependencies
+pip install torch torchvision transformers diffusers timm open3d
+
 # Build the project and install it into the current environment
 # Omit the -e flag to install the project as a regular package
 pip install --no-build-isolation -e .
@@ -34,6 +40,8 @@ pip install --no-build-isolation -e .
 
 Once the python package is installed, you can use the `vipe` CLI to process raw videos in mp4 format.
 
+#### Standard ViPE Processing
+
 ```bash
 # Replace YOUR_VIDEO.mp4 with the path to your video. We provide sample videos in assets/examples.
 vipe infer YOUR_VIDEO.mp4
@@ -41,6 +49,22 @@ vipe infer YOUR_VIDEO.mp4
 #   --output: Output directory (default: vipe_results)
 #   --visualize: Enable visualization of intermediate and final results (default: false)
 #   --pipeline: Pipeline configuration to use (default: default)
+```
+
+#### Video Colorization
+
+```bash
+# Basic colorization of black and white videos
+vipe colorize YOUR_BW_VIDEO.mp4
+
+# Colorization with custom settings
+vipe colorize YOUR_BW_VIDEO.mp4 --output colorization_results/ --visualize --device cuda
+
+# Using different colorization pipeline configurations
+vipe colorize YOUR_BW_VIDEO.mp4 --pipeline colorization
+
+# CPU-only colorization (slower but works without GPU)
+vipe colorize YOUR_BW_VIDEO.mp4 --device cpu
 ```
 
 ![vipe-vis](assets/vipe-vis.gif)
@@ -67,7 +91,25 @@ python run.py pipeline=default streams=raw_mp4_stream streams.base_path=YOUR_VID
 
 # Running the pose-only pipeline without depth estimation.
 python run.py pipeline=default streams=raw_mp4_stream streams.base_path=YOUR_VIDEO_OR_DIR_PATH pipeline.post.depth_align_model=null
+
+# Running video colorization pipeline
+python run.py pipeline=colorization streams=raw_mp4_stream streams.base_path=YOUR_BW_VIDEO_OR_DIR_PATH
+
+# Colorization with custom model settings
+python run.py pipeline=colorization streams=raw_mp4_stream streams.base_path=YOUR_BW_VIDEO_OR_DIR_PATH colorization.inference_steps=30 colorization.guidance_scale=8.0
 ```
+
+### Video Colorization Features
+
+ViPE's colorization capabilities combine state-of-the-art AI models with robust 3D geometric understanding:
+
+- **Temporal Consistency**: Leverages ViPE's SLAM system for stable colorization across frames
+- **Semantic Awareness**: Uses object understanding to apply contextually appropriate colors  
+- **Depth-Guided Processing**: Incorporates 3D geometry for realistic lighting and shading
+- **Multiple Pre-trained Models**: Supports various colorization models for different use cases
+- **Batch Processing**: Efficient processing of multiple videos with parallel GPU utilization
+
+For detailed colorization documentation, see [COLORIZATION_README.md](COLORIZATION_README.md).
 
 
 ## Acknowledgments

@@ -1,0 +1,77 @@
+# Training Configuration for Video Colorization
+# 
+# This configuration file supports various training scenarios:
+# - Fine-tuning pre-trained models
+# - Training from scratch
+# - Multi-modal training with depth and semantic information
+
+# Data configuration
+data_dir: "./data/colorization_dataset"
+output_dir: "./training_outputs/stable_diffusion_finetune"
+
+# Model configuration
+model:
+  type: "stable_diffusion"  # Options: stable_diffusion, custom_unet
+  name: "runwayml/stable-diffusion-inpainting"
+  params:
+    # Additional model-specific parameters
+    use_depth_conditioning: true
+    use_semantic_conditioning: true
+    temporal_layers: true
+    
+# Training configuration
+training:
+  batch_size: 4
+  epochs: 50
+  num_workers: 8
+  save_freq: 5  # Save checkpoint every N epochs
+  
+  # Mixed precision training
+  mixed_precision: true
+  gradient_accumulation_steps: 4
+  
+  # Data augmentation
+  augmentation:
+    horizontal_flip: 0.5
+    color_jitter: 0.2
+    gaussian_blur: 0.1
+
+# Optimizer configuration
+optimizer:
+  type: "adamw"
+  lr: 1e-5
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.999
+
+# Learning rate scheduler
+scheduler:
+  type: "cosine"
+  warmup_epochs: 5
+  
+# Loss function configuration
+loss:
+  perceptual_weight: 1.0
+  temporal_weight: 0.5
+  semantic_weight: 0.3
+  l1_weight: 1.0
+  
+# Evaluation configuration
+evaluation:
+  eval_freq: 2  # Evaluate every N epochs
+  save_samples: true
+  metrics:
+    - ssim
+    - psnr
+    - lpips
+    - fid
+    
+# Additional features
+use_depth: true
+use_semantic: true
+temporal_consistency: true
+
+# Distributed training
+distributed:
+  enabled: false
+  backend: "nccl"

@@ -1,0 +1,76 @@
+# Real-time Video Colorization Configuration
+# Optimized for speed and low latency applications
+
+# Data configuration
+data_dir: "./data/realtime_dataset"
+output_dir: "./training_outputs/realtime_model"
+
+# Model configuration - Lightweight architecture
+model:
+  type: "lightweight_unet"
+  name: "realtime_colorization_unet"
+  params:
+    input_channels: 1  # Grayscale only for speed
+    output_channels: 3
+    base_channels: 32  # Reduced channels for speed
+    depth_levels: 3    # Fewer levels
+    use_depth_conditioning: false  # Disable for speed
+    use_semantic_conditioning: false
+    temporal_layers: false
+    dropout: 0.05
+    activation: "relu"  # Faster than sophisticated activations
+    
+# Training configuration - Fast training
+training:
+  batch_size: 16  # Larger batch for efficiency
+  epochs: 30      # Fewer epochs
+  num_workers: 4
+  save_freq: 5
+  
+  mixed_precision: true
+  gradient_accumulation_steps: 1  # No accumulation for speed
+  
+  # Minimal augmentation for speed
+  augmentation:
+    horizontal_flip: 0.3
+    color_jitter: 0.1
+
+# Optimizer configuration - Aggressive for fast convergence
+optimizer:
+  type: "adamw"
+  lr: 3e-4  # Higher learning rate
+  weight_decay: 1e-4
+  beta1: 0.9
+  beta2: 0.99
+
+# Learning rate scheduler
+scheduler:
+  type: "cosine"
+  warmup_epochs: 2
+  
+# Loss function - Simplified for speed
+loss:
+  perceptual_weight: 0.5  # Reduced perceptual loss
+  temporal_weight: 0.0    # No temporal for real-time
+  semantic_weight: 0.0    # No semantic for real-time
+  l1_weight: 1.0
+  
+# Evaluation configuration
+evaluation:
+  eval_freq: 5
+  save_samples: false  # Save time
+  metrics:
+    - ssim
+    - psnr
+    
+# Features - Minimal for speed
+use_depth: false
+use_semantic: false
+temporal_consistency: false
+
+# Real-time optimization
+realtime_optimization:
+  model_compilation: true
+  tensor_fusion: true
+  memory_pool: true
+  async_processing: true
